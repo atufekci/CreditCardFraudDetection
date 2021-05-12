@@ -1,0 +1,438 @@
+---
+title: "Credit Card Fraud Detection Project Report"
+author: "Arezou Tufekci"
+date: "5/15/2021"
+output:
+  pdf_document:
+    toc: yes
+    toc_depth: 2
+    number_sections: yes
+    highlight: pygments
+    keep_tex: yes
+  word_document:
+    toc: yes
+    toc_depth: '2'
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, fig.align = 'center')
+```
+
+\newpage
+
+# Background
+
+The USA is the global leader as the most credit card fraud prone country with 38.6 percent of reported fraud losses in 2018 [1].  Credit card fraud is the most common and popular kind of identity theft and makes up 35.4% of all identity theft reports [1]. Fraud detection is a challenging problem since fraudulent transactions are rare and they represent a small fraction of transactions but can quickly turn into large sums of money.  The good news is that with advances in Machine Learning, system can learn, adapt and uncover emerging patterns for preventing fraud. 
+
+## Objectives
+
+The objective of this project is to train a Machine Learning algorithm on a dataset made up of credit card transactions in order to successfully predict fraudulent transactions. 
+
+## Structure
+
+This document is structured as follows: 
+
+1. **Introduction/overview:** Introduces the problem and describe the goal of the project.
+2. **Summary:** Describes the dataset and variables, explores the data further and prepares data for analysis.
+3. **Method/Analysis:** Explains the process and techniques used. Defines the models as we improve upon the model and explains different Machine Learning algorithms and the results for each method.
+4. **Results:** Summary of findings.presents the modeling results and discusses the model performance.
+5. **Conclusion:** Gives a brief summary of the report, its potential impact, its limitations, and future work.
+6. **Reference Page:** Cited sources.
+7. **Definition Of Terms:** Describe terms further for clarity
+
+```{r  echo=FALSE, message=FALSE, warning=FALSE}
+#Install all packages required for the project.
+
+if(!require(dplyr)) install.packages("dplyr")
+if(!require(corrplot)) install.packages("corrplot")
+if(!require(Rtsne)) install.packages("Rtsne")
+if(!require(ROSE)) install.packages("ROSE")
+if(!require(rpart)) install.packages("rpart")
+if(!require(Rborist)) install.packages("Rborist")
+if(!require(xgboost)) install.packages("xgboost")
+if(!require(caret)) install.packages("caret")
+if(!require(e1071)) install.packages("e1071")
+if(!require(class)) install.packages("class")
+if(!require(ROCR)) install.packages("ROCR")
+if(!require(randomForest)) install.packages("randomForest")
+if(!require(reshape2)) install.packages("reshape2")
+if(!require(kableExtra)) install.packages("kableExtra")
+if(!require(tidyr)) install.packages("tidyr")
+if(!require(tidyverse)) install.packages("tidyverse")
+if(!require(stringr)) install.packages("stringr")
+if(!require(ggplot2)) install.packages("ggplot2")
+if(!require(gbm)) install.packages("gbm")
+# Worthy to note that the version R did not contain the package DMwR so we have to use one of the packages in archive.
+install.packages('https://cran.r-project.org/src/contrib/Archive/DMwR/DMwR_0.4.1.tar.gz', repos = NULL, type="source")
+
+# Import all required libraries and dependencies for dataframe and machine learning
+
+library(dplyr) # utilize for data manipulation
+library(stringr) # utilize for data manipulation
+library(caret) # utilize for sampling
+library(caTools) # utilize to split train/test data
+library(ggplot2) # utilize for visualization
+library(corrplot) # utilize for correlations
+#library(Rtsne) # for tsne plotting
+library(DMwR) # utilize in upsampling (SMOTE)
+library(ROSE) # utilize in upsampling (ROSE)
+library(rpart) # utilize in decision tree model
+library(Rborist) # utilize in random forest model
+library(xgboost) # utilize in xgboost model
+library(tidyverse)
+library(tidyr)
+library(gbm)
+library(e1071)
+library(class)
+library(ROCR)
+library(randomForest)
+library(reshape2)
+```
+
+# Summary
+## Understanding the Data
+
+As a pre-requisite, install all the required packages and import libraries and dependencies for the dataframe. We start by downloading the csv file called creditcard.csv from Kaggle website (Source - https://www.kaggle.com/mlg-ulb/creditcardfraud). This dataset was collected and analyzed during a research collaboration of Worldline and the Machine Learning Group (http://mlg.ulb.ac.be) of ULB (Université Libre de Bruxelles) on big data mining and fraud detection. The dataset is made up of credit card transactions that occured in two days in September 2013 by European cardholders. 
+
+We read the csv file into a dataframe called ‘df’ and quickly analyze the structure of the dataframe. 
+
+```{r  echo=FALSE, message=FALSE, warning=FALSE}
+# Instruction for Grader to download the files including the dataset from my Google Drive and just set the Working directory. Everything else should be done for them.
+setwd("~/Documents/Data Science Certificate/Capstone /CreditCardFraud") # Grader will have to set the Working Directory.
+df =read.csv("./creditcard.csv") # Relative Path
+```
+
+```{r  message=FALSE, warning=FALSE}
+# We first look at top 6 rows of the dataframe. 
+head(df)
+#  We then use str to know more about the dataframe and its constituents.
+str(df)
+```
+The dataframe has 284,807 transactions with 31 columns (variables). The dataset contains only numerical variables. As stated in the Kaggle website this is a result of a PCA (Principal component analysis) dimensionality reduction to protect sensitive information [3]. Features V1, V2, … V28 are obtained by PCA except for ‘Time’, ‘Amount’, and ‘Class’. The variable ‘Class’ indicates whether a transaction is fraudulent (1 = Fraud) or not (0 = Legal).
+
+```{r  message=FALSE, warning=FALSE}
+summary(df)
+```
+
+We can see that the distribution of many PCA components is centered around zero, suggesting that the variables were standardized as part of the PCA transform. Also none of the columns have inconsistent datatypes so no conversions are required. 
+
+```{r  message=FALSE, warning=FALSE}
+# Perform basic data cleansing by checking for nulls in the dataset.
+colSums(is.na(df))
+# Observed no null values and hence no null treatment is required. 
+```
+There are no missing values in our dataset.
+
+```{r  message=FALSE, warning=FALSE}
+# The following code will convert our dependent variable (Class) to a factor.
+df$Class = factor(df$Class)
+table(df$Class)
+prop.table(table(df$Class))
+```
+This dataframe contains 492 fraud and 284,315 legal transactions. This shows a highly imbalanced set to work with as the frauds account for 0.172% of all transactions. We will address the problem of training a model to perform against highly imbalanced data and outline some techniques and expectations.
+
+Imbalanced data typically refers to a problem with classification problems where the classes are not represented equally [2]. We have a binary classification problem with 284,807. A total of 284,315 Legal labeled with Class '0' and the remaining 492 are labeled with Class '1'. This is an imbalanced dataset and the ration Class ‘1’ to Class ‘0’ is ~ 1:578 ! If we to use Logistic Regression, the result will ignore fraud Class and most of the time the result are overfit to the legal transaction Class. More interestingly, there are problems where a class imbalance is not just common, it is expected! For example, in datasets like this one that characterize fraudulent transaction are imbalanced. The vast majority of the transactions will be in the legal Class and a very small minority will be in the Fraud Class. It is very common to start with classification accuracy, because it is often the first measure we use when evaluating models on our classification problems [2]. Accuracy is not appropriate here as even a classifier which labels all transactions as non-fraudulent will have over 99% accuracy. Why is that? Because our models look at the data and cleverly decide that the best thing to do is to always predict 'Legal' Class and achieve high accuracy. This is exactly why Machine Learning does not work well with imbalanced data. So now that  we understand what class imbalance is and why it provides misleading classification accuracy, we will need to change our performance metric. Next, we explore our options. 
+
+## Preparing the Data
+
+### Re-sampling the Dataset
+
+Machine Learning algorithms assume that the dataset has balanced class distributions. As mentioned above, Machine Learning algorithms struggle with accuracy because of the unequal distribution in dependent variable. This causes the performance of existing classifiers to get biased towards majority class. We can use Sampling to build a more balanced data. Sampling technique should only be applied to the training set and not to the testing set. The three main methods are: 
+
+* **Over-sampling**: Add copies of instances from the under-represented class. 
+* **Under-sampling**: Delete instances from the over-represented class.
+* **Synthetic Data Generation**: Randomly sample the attribute from instances in the minority Class.
+    + **SMOTE** Draws artificial samples by choosing points that lie on the line connecting the rare observation to one of its nearest neighbors.
+    + **ROSE**  Uses smoothed bootstrapping to draw artificial samples from the neighborhood around the minority class.
+
+## Splitting the Data into Train and Test Sets
+
+We will split the dataset into train and test sets in 70:30 ratio respectively. We make the decision to remove 'Time' feature from our set prior to splitting. Time feature does not indicate the actual time of the transaction and is more of listing the data in chronological order. We assume that 'Time' feature has little or no significance in correctly classifying a fraud transaction and hence eliminate this column from further analysis.
+
+```{r  message=FALSE, warning=FALSE}
+#Remove 'Time' variable
+df <- df[,-1]
+```
+
+```{r  message=FALSE, warning=FALSE}
+#Change Class variable to factor
+df$Class <- as.factor(df$Class)
+levels(df$Class)  <- c("Legal", "Fraud")
+#Scale numeric variables
+df[,-30] <- scale(df[,-30])
+head(df)
+```
+
+```{r  message=FALSE, warning=FALSE}
+# Split dataset into train and test sets in 70:30 ratio respectively
+set.seed(42)
+split <- sample.split(df$Class, SplitRatio = 0.7)
+train <-  subset(df, split == TRUE)
+test <- subset(df, split == FALSE)
+```
+
+## Creating Sampled Sets of Data
+We will now use the sampling techniques defined above in order to produce different versions of the train set. 
+
+```{r  message=FALSE, warning=FALSE}
+# Create Original Train Set
+table(train$Class)
+
+# Create Under-sampling Train Set
+set.seed(42)
+downsamp_train <- downSample(x = train[, -ncol(train)], y = train$Class)
+table(downsamp_train$Class) 
+```
+
+```{r  message=FALSE, warning=FALSE}
+# Create Over-sampling Train Set
+set.seed(42)
+upsamp_train <- upSample(x = train[, -ncol(train)], y = train$Class)
+table(upsamp_train$Class) 
+```
+
+```{r  message=FALSE, warning=FALSE}
+# Create SMOTE Train Set
+set.seed(42)
+smote_train <- SMOTE(Class ~ ., data  = train)
+table(smote_train$Class) 
+```
+
+```{r  message=FALSE, warning=FALSE}
+# Create ROSE Train Set
+set.seed(42)
+rose_train <- ROSE(Class ~ ., data  = train)$data 
+table(rose_train$Class)
+```
+
+The Following table summarizes the different count of Class variable (Legal/Fraud) in our train set.
+
+|  Sampling Methods (Train set)        |     # of Legal    |   # of Fraud   |
+|--------------------------------------|-------------------|----------------|
+|  No Sampling: Original               |    199020         |     344        |
+|  Under Sampling                      |    344            |     344        |
+|  Over Sampling                       |    199020         |     199020     |
+|  SMOTE                               |    1376           |     1032       |
+|  ROSE                                |    99791          |     99573      |
+
+# Modeling Approach
+
+As said before, Accuracy is not the metric to use when working with an imbalanced dataset. There are metrics that have been designed to tell a better story when working with imbalanced classes. ROC Curves and Precision-Recall Curves are some useful tools. ROC curves are appropriate when the observation are balanced between each class, whereas precision-recall curves are appropriate for imbalanced datasets. Since we have created a balanced data using the sampling technique above, we will continue with ROC curves for predicting the probability of a binary outcome. ROC curve stands for Receiver Operating Characteristic curve. The plot depicts the false positive rate on x-axis vs the true positive rate (y-axis) for a number of different candidate threshold (between 0 and 1). In other words, it plots the false alarm rate versus the hit rate [4].  We will explore ROC Curves AUC (Area Under Curve). The higher the AUC, the better the performance of the model at distinguishing between the positive and negative classes. The AUC value lies between 0.5 and 1 where 0.5 denotes a bad classifier and 1 denotes an excellent classifier. Our modeling approach will involve training a single classifier on the train set with class imbalance suitably altered using each of the train set versions above. Depending on which version of train set yields the best roc-auc score on a holdout test set. We will then build subsequent models using that chosen technique. In our analysis, we will train several algorithms such as CART, GLM, Random Forest, and XGBoost.    
+
+## CART Method
+We choose CART (Classification And Regression Tree) as first model. Before we start using sampling let us first look at how CART performs with imbalanced data. we use the function roc.curve available in the ROSE package to gauge model performance on the test set.
+
+### CART Method: Calculate AUC using Original Train Dataset
+```{r  message=FALSE, warning=FALSE}
+# CART Model Performance on original imbalanced dataset
+set.seed(42)
+original_fit <- rpart(Class ~ ., data = train)
+#Evaluate Model Performance on test set
+pred_original  <- predict(original_fit, newdata = test, method = "class")
+ROSE::roc.curve(test$Class, pred_original[,2], plotit = TRUE)
+```
+
+We evaluate the model performance on test data by calculating the roc auc score. AUC score on the original dataset is **0.898**. This is our first attempt at our AUC and we believe we can improve on this score. 
+
+|                Method                |        AUC      |
+|--------------------------------------|-----------------|
+|  CART Method: Original               |    **0.898**    |
+
+### CART Method: Calculate AUC using Under-sampled Train Dataset
+```{r  message=FALSE, warning=FALSE}
+set.seed(42)
+# Build down-sampled model
+downsample_fit <- rpart(Class ~ ., data = downsamp_train)
+predict_down <- predict(downsample_fit, newdata = test)
+print('Fitting downsampled model to test data')
+ROSE::roc.curve(test$Class, predict_down[,2], plotit = TRUE)
+```
+
+|                Method                |        AUC      |
+|--------------------------------------|-----------------|
+|  CART Method: Original               |      0.898      |
+|  CART Method: Undersampling          |    **0.913**    |
+
+### CART Method: Calculate AUC using Over-sampled Train Dataset
+```{r  message=FALSE, warning=FALSE}
+set.seed(42)
+# Build up-sampled model
+upsamp_fit <- rpart(Class ~ ., data = upsamp_train)
+predict_up <- predict(upsamp_fit, newdata = test)
+print('Fitting upsampled model to test data')
+ROSE::roc.curve(test$Class, predict_up[,2], plotit = TRUE)
+```
+
+|                Method                |        AUC      |
+|--------------------------------------|-----------------|
+|  CART Method: Original               |      0.898      |
+|  CART Method: Undersampling          |      0.913      |
+|  CART Method: Oversampling           |    **0.935**    |
+
+
+### CART Method: Calculate AUC using SMOTE sampled Train Dataset
+```{r  message=FALSE, warning=FALSE}
+set.seed(42)
+# train the models
+smote_fit <- rpart(Class ~ ., data = smote_train)
+pred_smote <- predict(smote_fit, newdata = test)
+print('Fitting smote model to test data')
+#try and predict an outcome from the test set
+ROSE::roc.curve(test$Class, pred_smote[,2], plotit = TRUE)
+```
+
+|                Method                |        AUC      |
+|--------------------------------------|-----------------|
+|  CART Method: Original               |      0.898      |
+|  CART Method: Undersampling          |      0.913      |
+|  CART Method: Oversampling           |      0.935      |
+|  CART Method: SMOTE                  |    **0.908**    |
+
+
+### CART Method: Calculate AUC using ROSE sampled Train Dataset
+```{r  message=FALSE, warning=FALSE}
+set.seed(42)
+# # train the models. Build rose model
+rose_fit <- rpart(Class ~ ., data = rose_train)
+pred_rose <- predict(rose_fit, newdata = test)
+print('Fitting rose model to test data')
+# try and predict an outcome from the test set
+ROSE::roc.curve(test$Class, pred_rose[,2], plotit = TRUE)
+```
+
+|                Method                |        AUC      |
+|--------------------------------------|-----------------|
+|  CART Method: Original               |      0.898      |
+|  CART Method: Undersampling          |      0.913      |
+|  CART Method: Oversampling           |      0.935      |
+|  CART Method: SMOTE                  |      0.908      |
+|  CART Method: ROSE                   |    **0.919**    |
+
+We see that all the sampling techniques have yielded better AUC scores than the simple imbalanced dataset. We will test different models now using the up sampling technique as that has given the highest AUC score.
+
+## Logistic Regression (GLM) Model
+
+```{r  message=FALSE, warning=FALSE}
+# train the models
+fit_glm <- glm(Class ~ ., data = upsamp_train, family = 'binomial')
+predict_glm <- predict(fit_glm, newdata = test, type = 'response')
+# try and predict an outcome from the test set
+ROSE::roc.curve(test$Class, predict_glm, plotit = TRUE)
+```
+
+|                Method                |        AUC      |
+|--------------------------------------|-----------------|
+|  CART Method: Original               |      0.898      |
+|  CART Method: Undersampling          |      0.913      |
+|  CART Method: Oversampling           |      0.935      |
+|  CART Method: SMOTE                  |      0.908      |
+|  CART Method: ROSE                   |      0.919      |
+|  GLM Fit                             |    **0.967**    |
+
+## Random Forest (RF Fit) Model
+
+```{r  message=FALSE, warning=FALSE}
+# train the models
+x = upsamp_train[,-30]
+y = upsamp_train[,30]
+fit_rf <- Rborist(x, y, ntree = 1000, minNode = 21, maxLeaf = 12)
+predict_rf <- predict(fit_rf, test[,-30], ctgCensus = "prob")
+prob <- predict_rf$prob
+# try and predict an outcome from the test set
+ROSE::roc.curve(test$Class, prob[,2], plotit = TRUE)
+```
+
+|                Method                |        AUC      |
+|--------------------------------------|-----------------|
+|  CART Method: Original               |      0.898      |
+|  CART Method: Undersampling          |      0.913      |
+|  CART Method: Oversampling           |      0.935      |
+|  CART Method: SMOTE                  |      0.908      |
+|  CART Method: ROSE                   |      0.919      |
+|  GLM Fit                             |      0.967      |
+|  RF Fit                              |    **0.971**    |
+
+## xgboost (XGB Fit) Model
+Lastly, we can also try XGBoost, which is based on Gradient Boosted Trees and is a more powerful model compared to both Logistic Regression and Random Forest. Now that we have seen how to evaluate models on this dataset, let’s look at how we can use a final model to make predictions.
+
+```{r  message=FALSE, warning=FALSE}
+# train the models
+labels <- upsamp_train$Class
+y <- recode(labels, "Legal" = 0, "Fraud" = 1)
+xgb <- xgboost(data = data.matrix(upsamp_train[,-30]), 
+ label = y,
+ eta = 0.1,
+ gamma = 0.1,
+ max_depth = 10, 
+ nrounds = 400, 
+ objective = "binary:logistic",
+ colsample_bytree = 0.5,
+ verbose = 0,
+ nthread = 8,
+ seed = 42
+)
+predict_xgb <- predict(xgb, data.matrix(test[,-30]))
+#try and predict an outcome from the test set
+ROSE::roc.curve(test$Class, predict_xgb, plotit = TRUE)
+```
+
+|                Method                |        AUC      |
+|--------------------------------------|-----------------|
+|  CART Method: Original               |      0.898      |
+|  CART Method: Undersampling          |      0.913      |
+|  CART Method: Oversampling           |      0.935      |
+|  CART Method: SMOTE                  |      0.908      |
+|  CART Method: ROSE                   |      0.919      |
+|  GLM Fit                             |      0.967      |
+|  RF Fit                              |      0.971      |
+|  XGB Fit                             |    **0.984**    |
+
+XGB can also automatically provide estimates of feature importance from a trained predictive model. Feature importance scores can provide insight into the dataset. This means we could save disk space and computation time by only training the model on the most correlated/important variables.
+
+```{r  message=FALSE, warning=FALSE}
+names <- dimnames(data.matrix(upsamp_train[,-30]))[[2]]
+importance_matrix <- xgb.importance(names, model = xgb)
+xgb.plot.importance(importance_matrix[1:10,])
+```
+
+
+
+# Results
+
+We see that all the sampling techniques have yielded better AUC scores than the simple imbalanced dataset. We then tested different models using the up sampling technique as that has given the highest AUC score. With an auc score of 0.984 the XGBOOST model has performed the best though both the random forest and logistic regression models have shown reasonable performance. This also indicated that ROC Curve AUC has been a good performance metric as it allow us to compare variety of Machine Learning algorithms to achieve AUC closer to 1. It has been shown that even a very simple logistic regression model can achieve good result, while a much more complex Random Forest model improves upon logistic regression in terms of AUC. However, XGBoost model improves upon both models. 
+
+
+|                Method                |        AUC      |
+|--------------------------------------|-----------------|
+|  CART Method: Original               |      0.898      |
+|  CART Method: Undersampling          |      0.913      |
+|  CART Method: Oversampling           |      0.935      |
+|  CART Method: SMOTE                  |      0.908      |
+|  CART Method: ROSE                   |      0.919      |
+|  GLM Fit                             |      0.967      |
+|  RF Fit                              |      0.971      |
+|  XGB Fit                             |    **0.984**    |
+
+#  Conclusion
+
+Ihis project has explored the task of identifying fraudulent transactions based on a dataset of anonymized features. We have studied sampling as a way to deal with unbalanced datasets and discussed why accuracy is not an appropriate measure of performance and we used the metric AUC ROC to evaluate how sampling can lead to better training. We concluded that the oversampling technique works best on the dataset and has achieved significant improvement in model performance over the imbalanced data. The best score of 0.984 was obtained by XGBOOST model. RF and Logistic models also performed fairly well.  using an XGBOOST model though both random forest and logistic regression models performed well too. This model has many valid real-world use cases. For example, a bank could take a similar approach and reduce the amount of money spent trying to detect fraud by automating it with a machine. We can protect consumers with this technology by having a similar model integrated into the transaction process to notify the consumer and bank of fraud within minutes, rather than days. This project has explored the task of identifying fraudulent transactions based on a dataset of anonymized features.
+
+A future task to explore is to focus on two metrics: ROC Curves and Precision-Recall Curves to use on an imbalanced dataset and compare the AUC score. Learn more about, does it make sense to create balance set or use tools like Precision Recall on an imbalanced data. 
+
+#  Sources
+
+* [1]. Shift Credit Card Processing incorporate. “Credit Card Fraud Statistics”, Updated January 2021, https://shiftprocessing.com/credit-card-fraud-statistics/
+* [2]. Brownlee, Jason. "8 Tactics to Combat Imbalanced Classes in Your Machine Learning Dataset.", Machine Learning Mastery, 19 August 2015, https://machinelearningmastery.com/tactics-to-combat-imbalanced-classes-in-your-machine-learning-dataset/
+* [3]. Machine Learning Group - ULB. "Credit Card Fraud Detection Anonymized credit card transactions labeled as fraudulent or genuine", Kaggle.com, 22 March 2018, Version 3, https://www.kaggle.com/mlg-ulb/creditcardfraud
+* [4]. Brownlee, Jason. "How to Use ROC Curves and Precision-Recall Curves for Classification in Python", Machine Learning Mastery, 13 January 2021, https://machinelearningmastery.com/roc-curves-and-precision-recall-curves-for-classification-in-python/
+
+# Definition of Terms
+- **False Positive.** Predict an event when there was no event.
+- **False Negative.** Predict no event when in fact there was an event.
+- **ROC Curves.** summarize the trade-off between the true positive rate and false positive rate for a predictive model using different probability thresholds.
+- **Precision-Recall curves.** summarize the trade-off between the true positive rate and the positive predictive value for a predictive model using different probability thresholds.ROC curves are appropriate when the observations are balanced between each class, whereas precision-recall curves are appropriate for imbalanced datasets.
+- **PCA.** Principal Component Analysis, or PCA, is a dimensionality-reduction method that is often used to reduce the dimensionality of large data sets, by transforming a large set of variables into a smaller one that still contains most of the information in the large set.
+- **CART.** The classical name Decision Tree and the more Modern name CART for the algorithm. The representation used for CART is a binary tree. Predictions are made with CART by traversing the binary tree given a new input record. The tree is learned using a greedy algorithm on the training data to pick splits in the tree.
+- **GLM.**Generalized linear models generalize the possible distributions of the residuals to a family of distributions called the exponential family.  This family includes the normal as well as the binomial, Poisson, beta, and gamma distributions, among others.
+- **RF.** Random forest is a supervised learning algorithm. The "forest" it builds, is an ensemble of decision trees, usually trained with the “bagging” method. The general idea of the bagging method is that a combination of learning models increases the overall result.
+- **XGBOOST.** XGBoost is an algorithm that has recently been dominating applied machine learning and Kaggle competitions for structured or tabular data. XGBoost is an implementation of gradient boosted decision trees designed for speed and performance.
